@@ -5,20 +5,26 @@ import org.example.domain.Tuple;
 import org.example.domain.Utilizator;
 import org.example.exceptions.ServiceException;
 import org.example.repository.Repository;
+import org.example.util.Streams;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Business logic of the social network: users, friendships and communities.
  * Depends only on the {@link Repository} abstraction, not on the kind of persistence.
+ * The operations on collections are written with streams.
  */
 public class ReteaService {
     private final Repository<Long, Utilizator> userRepo;
@@ -52,6 +58,17 @@ public class ReteaService {
     }
 
     /**
+     * Finds a user by id.
+     *
+     * @param id the id of the user, must not be null
+     * @return the user, or an empty Optional if there is no user with this id
+     * @throws IllegalArgumentException if id is null
+     */
+    public Optional<Utilizator> findUser(Long id) {
+        return userRepo.findOne(id);
+    }
+
+    /**
      * Removes a user together with all his friendships.
      *
      * @param username the username of the user
@@ -61,12 +78,11 @@ public class ReteaService {
      */
     public Utilizator removeUser(String username) {
         Long id = getByUsername(username).getId();
-        // intai prieteniile, ca sa nu ramana prietenii cu un utilizator inexistent
-        List<Tuple<Long, Long>> toDelete = new ArrayList<>();
-        for (Prietenie p : friendRepo.findAll())
-            if (p.involves(id)) toDelete.add(p.getId());
-        for (Tuple<Long, Long> friendshipId : toDelete)
-            friendRepo.delete(friendshipId);
+        // intai prieteniile, ca sa nu ramana prietenii cu un utilizator inexistent;
+        // findAll(Predicate) intoarce o lista noua, deci stergerea nu modifica colectia parcursa
+        friendRepo.findAll(p -> p.involves(id)).stream()
+                .map(Prietenie::getId)
+                .forEach(friendRepo::delete);
         return userRepo.delete(id);
     }
 
@@ -122,108 +138,171 @@ public class ReteaService {
      * @return the friendships as text, with usernames instead of ids
      */
     public List<String> getFriendshipsWithUsernames() {
-        List<String> result = new ArrayList<>();
-        for (Prietenie p : friendRepo.findAll())
-            result.add(usernameOf(p.getIdUser1()) + " <-> " + usernameOf(p.getIdUser2())
-                    + " (din " + p.getFriendsFrom().toLocalDate() + ")");
-        return result;
+        return Streams.of(friendRepo.findAll())
+                .map(p -> usernameOf(p.getIdUser1()) + " <-> " + usernameOf(p.getIdUser2())
+                        + " (din " + p.getFriendsFrom().toLocalDate() + ")")
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * The friends of a user.
+     *
+     * @param username the username of the user
+     * @return the friends of the user, sorted by username
+     * @throws ServiceException if there is no user with this username
+     */
+    public List<Utilizator> friendsOf(String username) {
+        Long id = getByUsername(username).getId();
+        return Streams.of(friendRepo.findAll())
+                .filter(p -> p.involves(id))
+                .map(p -> p.otherThan(id))
+                .map(userRepo::findOne)
+                .flatMap(Optional::stream)
+                .sorted(Comparator.comparing(Utilizator::getUsername))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Finds the users that satisfy a search criterion (see {@link CriteriiUtilizator}).
+     *
+     * @param criterion the condition a user must satisfy, must not be null
+     * @return the matching users, sorted by last name, then first name, then username
+     * @throws NullPointerException if criterion is null
+     */
+    public List<Utilizator> findUsers(Predicate<Utilizator> criterion) {
+        return userRepo.findAll(criterion).stream()
+                .sorted(Comparator.comparing(Utilizator::getLastName)
+                        .thenComparing(Utilizator::getFirstName)
+                        .thenComparing(Utilizator::getUsername))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * @return the users that have no friend, sorted like in {@link #findUsers(Predicate)}
+     */
+    public List<Utilizator> usersWithoutFriends() {
+        Set<Long> idsWithFriends = friendCounts().keySet();
+        return findUsers(CriteriiUtilizator.faraPrieteni(idsWithFriends));
+    }
+
+    /**
+     * The users with their number of friends.
+     *
+     * @return user -&gt; number of friends, ordered descending by the number of friends,
+     *         then by username
+     */
+    public Map<Utilizator, Long> usersByNumberOfFriends() {
+        Map<Long, Long> counts = friendCounts();
+        Comparator<Utilizator> byFriends = Comparator.comparingLong(
+                (Utilizator u) -> counts.getOrDefault(u.getId(), 0L));
+        return Streams.of(userRepo.findAll())
+                .sorted(byFriends.reversed().thenComparing(Utilizator::getUsername))
+                .collect(Collectors.toMap(Function.identity(), u -> counts.getOrDefault(u.getId(), 0L),
+                        (a, b) -> a, LinkedHashMap::new));
     }
 
     /**
      * @return the number of communities (connected components of the friendship graph)
      */
     public int numberOfCommunities() {
-        return getCommunities().size();
+        return getCommunities(buildGraph()).size();
     }
 
     /**
      * The most sociable community is the one with the longest path in the friendship graph.
+     * If several communities have the same longest path, the first one found is chosen.
      *
      * @return the users of the most sociable community (empty if there are no users)
      */
     public List<Utilizator> mostSociableCommunity() {
         Map<Long, List<Long>> graph = buildGraph();
-        List<Long> best = new ArrayList<>();
-        int bestLength = -1;
-        for (List<Long> community : getCommunities()) {
-            int length = longestPath(community, graph);
-            if (length > bestLength) {
-                bestLength = length;
-                best = community;
-            }
-        }
-        List<Utilizator> result = new ArrayList<>();
-        for (Long id : best) {
-            Optional<Utilizator> user = userRepo.findOne(id);
-            if (user.isPresent()) result.add(user.get());
-        }
-        return result;
+        return getCommunities(graph).stream()
+                .map(community -> new Tuple<>(community, longestPath(community, graph)))
+                .max(Comparator.<Tuple<Set<Long>, Integer>>comparingInt(Tuple::getRight))
+                .map(Tuple::getLeft)
+                .map(community -> community.stream()
+                        .map(userRepo::findOne)
+                        .flatMap(Optional::stream)
+                        .collect(Collectors.toList()))
+                .orElse(List.of());
     }
 
     private Optional<Utilizator> findByUsername(String username) {
-        for (Utilizator u : userRepo.findAll())
-            if (u.getUsername().equals(username)) return Optional.of(u);
-        return Optional.empty();
+        return userRepo.findAll(CriteriiUtilizator.areUsername(username)).stream().findFirst();
     }
 
     private String usernameOf(Long id) {
-        Optional<Utilizator> user = userRepo.findOne(id);
-        return user.isPresent() ? user.get().getUsername() : "?" + id;
+        return userRepo.findOne(id)
+                .map(Utilizator::getUsername)
+                .orElse("?" + id);
     }
 
     private Utilizator getByUsername(String username) {
-        Optional<Utilizator> user = findByUsername(username);
-        if (user.isEmpty())
-            throw new ServiceException("Nu exista utilizatorul '" + username + "'");
-        return user.get();
+        return findByUsername(username)
+                .orElseThrow(() -> new ServiceException("Nu exista utilizatorul '" + username + "'"));
     }
 
-    // graful ca lista de adiacenta: id user -> id-urile prietenilor
+    // id utilizator -> numarul de prieteni (doar utilizatorii cu cel putin un prieten)
+    private Map<Long, Long> friendCounts() {
+        return Streams.of(friendRepo.findAll())
+                .flatMap(p -> Stream.of(p.getIdUser1(), p.getIdUser2()))
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+    }
+
+    // graful ca lista de adiacenta: id user -> id-urile prietenilor (lista goala pentru cei fara prieteni)
     private Map<Long, List<Long>> buildGraph() {
-        Map<Long, List<Long>> graph = new HashMap<>();
-        for (Utilizator u : userRepo.findAll()) graph.put(u.getId(), new ArrayList<>());
-        for (Prietenie p : friendRepo.findAll()) {
-            graph.get(p.getIdUser1()).add(p.getIdUser2());
-            graph.get(p.getIdUser2()).add(p.getIdUser1());
-        }
-        return graph;
+        Map<Long, List<Long>> neighbours = Streams.of(friendRepo.findAll())
+                .flatMap(p -> Stream.of(new Tuple<>(p.getIdUser1(), p.getIdUser2()),
+                        new Tuple<>(p.getIdUser2(), p.getIdUser1())))
+                .collect(Collectors.groupingBy(Tuple::getLeft,
+                        Collectors.mapping(Tuple::getRight, Collectors.toList())));
+        return Streams.of(userRepo.findAll())
+                .map(Utilizator::getId)
+                .collect(Collectors.toMap(Function.identity(), id -> neighbours.getOrDefault(id, List.of())));
     }
 
-    // componentele conexe, fac dfs din fiecare nod nevizitat
-    private List<List<Long>> getCommunities() {
-        Map<Long, List<Long>> graph = buildGraph();
-        Set<Long> visited = new HashSet<>();
-        List<List<Long>> communities = new ArrayList<>();
-        for (Long start : graph.keySet()) {
-            if (visited.contains(start)) continue;
-            List<Long> component = new ArrayList<>();
-            dfs(start, graph, visited, component);
-            communities.add(component);
-        }
-        return communities;
+    // componentele conexe: din fiecare nod, multimea nodurilor accesibile; aceeasi componenta
+    // apare din fiecare nod al ei, distinct() pastreaza prima aparitie (Set.equals nu tine cont de ordine)
+    private List<Set<Long>> getCommunities(Map<Long, List<Long>> graph) {
+        return graph.keySet().stream()
+                .map(start -> reachableFrom(start, graph))
+                .distinct()
+                .collect(Collectors.toList());
     }
 
-    private void dfs(Long node, Map<Long, List<Long>> graph, Set<Long> visited, List<Long> component) {
+    // nodurile accesibile din start, in ordinea parcurgerii DFS
+    private Set<Long> reachableFrom(Long start, Map<Long, List<Long>> graph) {
+        Set<Long> visited = new LinkedHashSet<>();
+        dfs(start, graph, visited);
+        return visited;
+    }
+
+    private void dfs(Long node, Map<Long, List<Long>> graph, Set<Long> visited) {
         visited.add(node);
-        component.add(node);
-        for (Long next : graph.get(node))
-            if (!visited.contains(next)) dfs(next, graph, visited, component);
+        graph.get(node).stream()
+                .filter(Predicate.not(visited::contains))
+                .forEach(next -> dfs(next, graph, visited));
     }
 
     // cel mai lung drum din componenta, incerc fiecare nod ca start
-    private int longestPath(List<Long> community, Map<Long, List<Long>> graph) {
-        int max = 0;
-        for (Long start : community)
-            max = Math.max(max, longestFrom(start, graph, new HashSet<>()));
-        return max;
+    private int longestPath(Set<Long> community, Map<Long, List<Long>> graph) {
+        return community.stream()
+                .mapToInt(start -> longestFrom(start, graph, Set.of(start)))
+                .max()
+                .orElse(0);
     }
 
+    // backtracking fara efecte secundare: fiecare apel primeste o multime noua cu nodurile de pe drum
     private int longestFrom(Long node, Map<Long, List<Long>> graph, Set<Long> onPath) {
-        onPath.add(node);
-        int max = 0;
-        for (Long next : graph.get(node))
-            if (!onPath.contains(next)) max = Math.max(max, 1 + longestFrom(next, graph, onPath));
-        onPath.remove(node); // backtracking
-        return max;
+        return graph.get(node).stream()
+                .filter(Predicate.not(onPath::contains))
+                .mapToInt(next -> 1 + longestFrom(next, graph, with(onPath, next)))
+                .max()
+                .orElse(0);
+    }
+
+    private static Set<Long> with(Set<Long> path, Long node) {
+        return Stream.concat(path.stream(), Stream.of(node))
+                .collect(Collectors.toSet());
     }
 }

@@ -9,6 +9,6 @@ public enum RepositoryType {
     MEMORY,
     /** entities kept in text files (paths: file.utilizatori, file.prietenii) */
     FILE,
-    /** entities kept in a database (db.url, db.user, db.password), implemented in lab 4 */
+    /** entities kept in a database (db.url, db.user, db.password), implemented in lab 5 */
     DATABASE
 }

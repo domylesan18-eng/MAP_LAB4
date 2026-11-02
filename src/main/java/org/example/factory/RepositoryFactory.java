@@ -8,8 +8,8 @@ import org.example.repository.InMemoryRepository;
 import org.example.repository.Repository;
 import org.example.repository.db.PrietenieDbRepository;
 import org.example.repository.db.UtilizatorDbRepository;
-import org.example.repository.file.PrietenieFileRepository;
-import org.example.repository.file.UtilizatorFileRepository;
+import org.example.repository.file.EntityConverters;
+import org.example.repository.file.FileRepository;
 import org.example.validation.Validator;
 
 import java.io.BufferedReader;
@@ -19,7 +19,13 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Simple Factory (and Singleton) for the repositories. It is the only class of the
@@ -29,6 +35,11 @@ import java.util.Properties;
  * The persistence type and its parameters are read from config.properties
  * (src/main/resources): repository.type, file.utilizatori, file.prietenii, db.url,
  * db.user, db.password. Both repositories are created for the same persistence type.
+ * <p>
+ * There is no switch: every {@link RepositoryType} is mapped to a function
+ * validator -&gt; repository. The functions are only called for the configured type, so
+ * only that repository is created (and only its parameters are required). A new
+ * persistence type means a new entry in the maps.
  */
 public final class RepositoryFactory {
     private static final String CONFIG_FILE = "config.properties";
@@ -36,10 +47,26 @@ public final class RepositoryFactory {
 
     private final Properties config;
     private final RepositoryType type;
+    private final Map<RepositoryType, Function<Validator<Utilizator>, Repository<Long, Utilizator>>> userRepos =
+            new EnumMap<>(RepositoryType.class);
+    private final Map<RepositoryType, Function<Validator<Prietenie>, Repository<Tuple<Long, Long>, Prietenie>>>
+            friendRepos = new EnumMap<>(RepositoryType.class);
 
     private RepositoryFactory() {
         config = loadConfig();
         type = readType();
+
+        userRepos.put(RepositoryType.MEMORY, InMemoryRepository::new);
+        userRepos.put(RepositoryType.FILE, validator -> new FileRepository<>(validator, require("file.utilizatori"),
+                EntityConverters::utilizatorFromLine, EntityConverters::utilizatorToLine));
+        userRepos.put(RepositoryType.DATABASE, validator -> new UtilizatorDbRepository(validator,
+                require("db.url"), require("db.user"), requirePresent("db.password")));
+
+        friendRepos.put(RepositoryType.MEMORY, InMemoryRepository::new);
+        friendRepos.put(RepositoryType.FILE, validator -> new FileRepository<>(validator, require("file.prietenii"),
+                EntityConverters::prietenieFromLine, EntityConverters::prietenieToLine));
+        friendRepos.put(RepositoryType.DATABASE, validator -> new PrietenieDbRepository(validator,
+                require("db.url"), require("db.user"), requirePresent("db.password")));
     }
 
     /**
@@ -68,17 +95,7 @@ public final class RepositoryFactory {
      * @throws org.example.exceptions.RepositoryException if the data file cannot be read
      */
     public Repository<Long, Utilizator> createUtilizatorRepository(Validator<Utilizator> validator) {
-        switch (type) {
-            case MEMORY:
-                return new InMemoryRepository<>(validator);
-            case FILE:
-                return new UtilizatorFileRepository(validator, require("file.utilizatori"));
-            case DATABASE:
-                return new UtilizatorDbRepository(validator, require("db.url"), require("db.user"),
-                        requirePresent("db.password"));
-            default:
-                throw new ConfigException("Tip de persistenta netratat: " + type);
-        }
+        return creatorFor(userRepos).apply(validator);
     }
 
     /**
@@ -90,17 +107,20 @@ public final class RepositoryFactory {
      * @throws org.example.exceptions.RepositoryException if the data file cannot be read
      */
     public Repository<Tuple<Long, Long>, Prietenie> createPrietenieRepository(Validator<Prietenie> validator) {
-        switch (type) {
-            case MEMORY:
-                return new InMemoryRepository<>(validator);
-            case FILE:
-                return new PrietenieFileRepository(validator, require("file.prietenii"));
-            case DATABASE:
-                return new PrietenieDbRepository(validator, require("db.url"), require("db.user"),
-                        requirePresent("db.password"));
-            default:
-                throw new ConfigException("Tip de persistenta netratat: " + type);
-        }
+        return creatorFor(friendRepos).apply(validator);
+    }
+
+    /**
+     * Looks up the function that creates the repository for the configured type.
+     *
+     * @param creators the functions validator -&gt; repository, by persistence type
+     * @param <F> the type of the creating function
+     * @return the function for the configured type
+     * @throws ConfigException if no function is registered for the configured type
+     */
+    private <F> F creatorFor(Map<RepositoryType, F> creators) {
+        return Optional.ofNullable(creators.get(type))
+                .orElseThrow(() -> new ConfigException("Tip de persistenta netratat: " + type));
     }
 
     // citeste config.properties din resources
@@ -124,24 +144,26 @@ public final class RepositoryFactory {
         try {
             return RepositoryType.valueOf(value.toUpperCase());
         } catch (IllegalArgumentException e) {
+            String allowed = Arrays.stream(RepositoryType.values())
+                    .map(RepositoryType::name)
+                    .collect(Collectors.joining(", ", "[", "]"));
             throw new ConfigException("Valoare necunoscuta pentru repository.type in " + CONFIG_FILE + ": '"
-                    + value + "'. Valori permise: " + Arrays.toString(RepositoryType.values()), e);
+                    + value + "'. Valori permise: " + allowed, e);
         }
     }
 
     // valoare obligatorie si nevida
     private String require(String key) {
-        String value = config.getProperty(key);
-        if (value == null || value.isBlank())
-            throw new ConfigException("Lipseste proprietatea '" + key + "' (sau e goala) in " + CONFIG_FILE + ".");
-        return value.trim();
+        return Optional.ofNullable(config.getProperty(key))
+                .filter(Predicate.not(String::isBlank))
+                .map(String::trim)
+                .orElseThrow(() -> new ConfigException("Lipseste proprietatea '" + key + "' (sau e goala) in "
+                        + CONFIG_FILE + "."));
     }
 
     // valoare obligatorie, dar poate fi goala (ex. parola goala)
     private String requirePresent(String key) {
-        String value = config.getProperty(key);
-        if (value == null)
-            throw new ConfigException("Lipseste proprietatea '" + key + "' in " + CONFIG_FILE + ".");
-        return value;
+        return Optional.ofNullable(config.getProperty(key))
+                .orElseThrow(() -> new ConfigException("Lipseste proprietatea '" + key + "' in " + CONFIG_FILE + "."));
     }
 }

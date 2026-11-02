@@ -7,12 +7,12 @@ import org.example.validation.Validator;
 import java.util.Optional;
 
 /**
- * Users in a relational database. Skeleton only: the JDBC code is written in lab 4,
+ * Users in a relational database. Skeleton only: the JDBC code is written in lab 5,
  * until then every operation throws {@link UnsupportedOperationException}.
  */
 public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     private static final String NOT_IMPLEMENTED =
-            "Persistenta in baza de date nu este implementata inca (laboratorul 4).";
+            "Persistenta in baza de date nu este implementata inca (laboratorul 5).";
 
     private final Validator<Utilizator> validator;
     private final String url;
@@ -33,7 +33,7 @@ public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Optional<Utilizator> findOne(Long id) {
@@ -41,7 +41,7 @@ public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Iterable<Utilizator> findAll() {
@@ -49,7 +49,7 @@ public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public void save(Utilizator entity) {
@@ -57,7 +57,7 @@ public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Utilizator delete(Long id) {
@@ -65,7 +65,7 @@ public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Utilizator update(Utilizator entity) {

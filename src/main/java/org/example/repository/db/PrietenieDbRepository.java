@@ -8,12 +8,12 @@ import org.example.validation.Validator;
 import java.util.Optional;
 
 /**
- * Friendships in a relational database. Skeleton only: the JDBC code is written in lab 4,
+ * Friendships in a relational database. Skeleton only: the JDBC code is written in lab 5,
  * until then every operation throws {@link UnsupportedOperationException}.
  */
 public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prietenie> {
     private static final String NOT_IMPLEMENTED =
-            "Persistenta in baza de date nu este implementata inca (laboratorul 4).";
+            "Persistenta in baza de date nu este implementata inca (laboratorul 5).";
 
     private final Validator<Prietenie> validator;
     private final String url;
@@ -34,7 +34,7 @@ public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prie
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Optional<Prietenie> findOne(Tuple<Long, Long> id) {
@@ -42,7 +42,7 @@ public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prie
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Iterable<Prietenie> findAll() {
@@ -50,7 +50,7 @@ public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prie
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public void save(Prietenie entity) {
@@ -58,7 +58,7 @@ public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prie
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Prietenie delete(Tuple<Long, Long> id) {
@@ -66,7 +66,7 @@ public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prie
     }
 
     /**
-     * @throws UnsupportedOperationException always, until lab 4
+     * @throws UnsupportedOperationException always, until lab 5
      */
     @Override
     public Prietenie update(Prietenie entity) {

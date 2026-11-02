@@ -60,6 +60,14 @@ public class Prietenie extends Entity<Tuple<Long, Long>> {
         return getIdUser1().equals(userId) || getIdUser2().equals(userId);
     }
 
+    /**
+     * @param userId id of one of the two friends
+     * @return the id of the other friend
+     */
+    public Long otherThan(Long userId) {
+        return getIdUser1().equals(userId) ? getIdUser2() : getIdUser1();
+    }
+
     @Override
     public String toString() {
         return getIdUser1() + " <-> " + getIdUser2() + " (din " + friendsFrom + ")";

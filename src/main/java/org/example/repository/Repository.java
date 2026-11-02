@@ -1,8 +1,12 @@
 package org.example.repository;
 
 import org.example.domain.Entity;
+import org.example.util.Streams;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * CRUD operations on a repository of entities.
@@ -24,6 +28,22 @@ public interface Repository<ID, E extends Entity<ID>> {
      * @return all the entities
      */
     Iterable<E> findAll();
+
+    /**
+     * Finds all the entities that satisfy a condition. The search criteria are given
+     * as predicates (see {@link org.example.service.CriteriiUtilizator}), so the
+     * repository needs no findByXxx method for every field.
+     *
+     * @param filter the condition an entity must satisfy to be returned, must not be null
+     * @return a new list with the matching entities, in the order of {@link #findAll()}
+     *         (empty if there is none)
+     * @throws NullPointerException if filter is null
+     */
+    default List<E> findAll(Predicate<E> filter) {
+        return Streams.of(findAll())
+                .filter(filter)
+                .collect(Collectors.toList());
+    }
 
     /**
      * Adds a new entity.
