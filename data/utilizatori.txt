@@ -1,0 +1,8 @@
+1;Ana;Pop;ana;2026-09-01T10:00
+2;Mihai;Ionescu;mihai;2026-09-03T14:20
+3;Ioana;Rusu;ioana;2026-09-10T08:45
+4;Dan;Marin;dan;2026-09-15T19:30
+5;Vlad;Stan;vlad;2026-10-01T12:00
+6;Elena;Dobre;elena;2026-10-02T16:10
+17;bbb;ccc;aaaa;2026-10-05T11:00
+44;ddd;ddd;dddd;2026-10-27T18:38
