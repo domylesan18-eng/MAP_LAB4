@@ -3,6 +3,7 @@ package org.example.repository.file;
 import org.example.domain.Prietenie;
 import org.example.domain.Utilizator;
 import org.example.exceptions.RepositoryException;
+import org.example.exceptions.ValidationException;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -73,6 +74,26 @@ public final class EntityConverters {
     public static String prietenieToLine(Prietenie p) {
         return String.join(SEPARATOR, String.valueOf(p.getIdUser1()), String.valueOf(p.getIdUser2()),
                 String.valueOf(p.getFriendsFrom()));
+    }
+
+    /**
+     * Validation rule needed only by the file storage: ';' separates the fields of a line,
+     * so it cannot appear inside a field. It is composed with the user validator only for
+     * the FILE repository (see RepositoryFactory); in the database a name may contain any
+     * text, ';' included.
+     *
+     * @param u the user to check
+     * @throws ValidationException if a text field of the user contains ';'
+     */
+    public static void checkNoSeparator(Utilizator u) {
+        if (containsSeparator(u.getFirstName()) || containsSeparator(u.getLastName())
+                || containsSeparator(u.getUsername()))
+            throw new ValidationException("Campurile nu pot contine '" + SEPARATOR
+                    + "' (separatorul din fisier)!");
+    }
+
+    private static boolean containsSeparator(String value) {
+        return value != null && value.contains(SEPARATOR);
     }
 
     // imparte linia dupa ';' (pastrand campurile goale) si verifica numarul de campuri

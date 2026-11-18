@@ -41,3 +41,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Configurarea locala (contine parola reala a bazei de date) ###
+src/main/resources/config.properties
+
+### Setarile locale IntelliJ ###
+.idea/

@@ -13,8 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeParseException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -25,10 +27,8 @@ import java.util.stream.Stream;
  * with the fields separated by ';'. The file is read once, when the repository is
  * created, and rewritten after every successful save, delete or update.
  * <p>
- * Composition instead of inheritance (it replaces AbstractFileRepository and its
- * subclasses from lab 3): the conversion between a line and an entity is not done by
- * abstract methods, but by two functions received through the constructor (see
- * {@link EntityConverters}). One generic class is enough for every entity type.
+ * Composition instead of inheritance: the conversion between a line and an entity is done
+ * by two functions received through the constructor (see {@link EntityConverters}).
  * <p>
  * A missing file means an empty repository; the file (and its folder) is created at the
  * first save. A corrupt or invalid line is reported, with its number and the reason,
@@ -43,21 +43,39 @@ public class FileRepository<ID, E extends Entity<ID>> extends InMemoryRepository
     private final Function<E, String> entityToLine;
 
     /**
-     * Creates the repository and loads the entities from the file.
+     * Creates a repository whose entities always come with their id and loads the file.
      *
      * @param validator used on every save and update, also for the loaded entities
-     * @param fileName path of the file, relative to the working directory (e.g. data/utilizatori.txt)
-     * @param lineToEntity converts a line of the file (without the line separator) into an entity;
-     *        it may throw {@link RepositoryException}, {@link NumberFormatException} or
-     *        {@link DateTimeParseException} for a corrupt line
-     * @param entityToLine converts an entity into a line of the file (without the line separator)
+     * @param fileName path of the file, relative to the working directory (e.g. data/prietenii.txt)
+     * @param lineToEntity converts a line of the file into an entity
+     * @param entityToLine converts an entity into a line of the file
      * @throws IllegalArgumentException if fileName is null or blank
      * @throws NullPointerException if one of the functions is null
      * @throws RepositoryException if the file exists but cannot be read
      */
     public FileRepository(Validator<E> validator, String fileName,
                           Function<String, E> lineToEntity, Function<E, String> entityToLine) {
-        super(validator);
+        this(validator, null, fileName, lineToEntity, entityToLine);
+    }
+
+    /**
+     * Creates the repository and loads the entities from the file.
+     *
+     * @param validator used on every save and update, also for the loaded entities
+     * @param idGenerator generates the id of the entities saved without one (receives the
+     *        ids already used); null if the entities always come with their id
+     * @param fileName path of the file, relative to the working directory (e.g. data/utilizatori.txt)
+     * @param lineToEntity converts a line of the file (without the line separator) into an entity;
+     *        it may throw {@link RepositoryException}, {@link NumberFormatException} or
+     *        {@link DateTimeParseException} for a corrupt line
+     * @param entityToLine converts an entity into a line of the file (without the line separator)
+     * @throws IllegalArgumentException if fileName is null or blank
+     * @throws NullPointerException if one of the conversion functions is null
+     * @throws RepositoryException if the file exists but cannot be read
+     */
+    public FileRepository(Validator<E> validator, Function<Collection<ID>, ID> idGenerator, String fileName,
+                          Function<String, E> lineToEntity, Function<E, String> entityToLine) {
+        super(validator, idGenerator);
         if (fileName == null || fileName.isBlank())
             throw new IllegalArgumentException("Numele fisierului nu poate fi gol!");
         this.file = Path.of(fileName);
@@ -90,7 +108,9 @@ public class FileRepository<ID, E extends Entity<ID>> extends InMemoryRepository
     private void loadLine(String line, int lineNumber) {
         try {
             // super.save, nu save: altfel s-ar rescrie fisierul in timp ce il citim
-            super.save(lineToEntity.apply(line));
+            E entity = lineToEntity.apply(line);
+            super.save(entity).ifPresent(duplicate ->
+                    reportSkippedLine(lineNumber, line, "Exista deja o entitate cu id-ul " + duplicate.getId()));
         } catch (NumberFormatException e) {
             reportSkippedLine(lineNumber, line, "numar invalid (" + e.getMessage() + ")");
         } catch (DateTimeParseException e) {
@@ -124,14 +144,16 @@ public class FileRepository<ID, E extends Entity<ID>> extends InMemoryRepository
      * If the file cannot be written, the entity is removed from memory as well.
      */
     @Override
-    public void save(E entity) {
-        super.save(entity);
+    public Optional<E> save(E entity) {
+        Optional<E> result = super.save(entity);
+        if (result.isPresent()) return result; // id deja folosit: nimic de scris
         try {
             writeToFile();
         } catch (RepositoryException e) {
             entities.remove(entity.getId()); // memoria ramane la fel ca fisierul
             throw e;
         }
+        return result;
     }
 
     /**
@@ -139,14 +161,16 @@ public class FileRepository<ID, E extends Entity<ID>> extends InMemoryRepository
      * If the file cannot be written, the entity is put back in memory.
      */
     @Override
-    public E delete(ID id) {
-        E removed = super.delete(id);
-        try {
-            writeToFile();
-        } catch (RepositoryException e) {
-            entities.put(id, removed);
-            throw e;
-        }
+    public Optional<E> delete(ID id) {
+        Optional<E> removed = super.delete(id);
+        removed.ifPresent(entity -> {
+            try {
+                writeToFile();
+            } catch (RepositoryException e) {
+                entities.put(id, entity);
+                throw e;
+            }
+        });
         return removed;
     }
 
@@ -155,14 +179,16 @@ public class FileRepository<ID, E extends Entity<ID>> extends InMemoryRepository
      * If the file cannot be written, the old version is put back in memory.
      */
     @Override
-    public E update(E entity) {
-        E old = super.update(entity);
+    public Optional<E> update(E entity) {
+        E old = entity == null ? null : entities.get(entity.getId());
+        Optional<E> result = super.update(entity);
+        if (result.isPresent()) return result; // id inexistent: nimic de scris
         try {
             writeToFile();
         } catch (RepositoryException e) {
             entities.put(old.getId(), old);
             throw e;
         }
-        return old;
+        return result;
     }
 }

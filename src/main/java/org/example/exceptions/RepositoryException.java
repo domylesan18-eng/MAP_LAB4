@@ -1,8 +1,10 @@
 package org.example.exceptions;
 
 /**
- * Unchecked exception for persistence errors: duplicate or missing id, unreadable or
- * unwritable file, corrupt line. The original exception (e.g. IOException) is kept as the cause.
+ * Unchecked exception for persistence errors: unreadable or unwritable file, corrupt line,
+ * database stopped, violated constraint. The original checked exception (IOException,
+ * SQLException) is kept as the cause, so the Repository interface does not depend on the
+ * kind of storage.
  */
 public class RepositoryException extends RuntimeException {
     /**

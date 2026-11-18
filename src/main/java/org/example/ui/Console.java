@@ -1,19 +1,20 @@
 package org.example.ui;
 
+import org.example.domain.Utilizator;
 import org.example.exceptions.RepositoryException;
 import org.example.exceptions.ServiceException;
 import org.example.exceptions.ValidationException;
 import org.example.service.CriteriiUtilizator;
 import org.example.service.ReteaService;
 
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Scanner;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
 
 /**
  * Console user interface: reads commands and calls the service. This is where the
@@ -21,8 +22,16 @@ import java.util.function.Predicate;
  * <p>
  * Every command is a {@link Consumer} of its arguments, kept in a map
  * command name -&gt; action, so there is no switch over the command names.
+ * <p>
+ * Lab 5: an argument may be written between double quotes to contain spaces, e.g.
+ * {@code addUser bobby "Robert'); DROP TABLE users; --" Tables}. Errors of the storage
+ * (database stopped, violated constraint) are shown as a specific message, without a
+ * stack trace.
  */
 public class Console {
+    /** an argument: text between double quotes (may contain spaces) or a word without spaces */
+    private static final Pattern ARGUMENT = Pattern.compile("\"([^\"]*)\"|(\\S+)");
+
     private final ReteaService service;
     private final Scanner scanner = new Scanner(System.in);
     private final Map<String, Consumer<String[]>> commands = new LinkedHashMap<>();
@@ -32,9 +41,9 @@ public class Console {
      */
     public Console(ReteaService service) {
         this.service = service;
-        commands.put("addUser", withArgs(4, args -> {
-            service.addUser(Long.parseLong(args[1]), args[2], args[3], args[4]);
-            System.out.println("Utilizator adaugat.");
+        commands.put("addUser", withArgs(3, args -> {
+            Utilizator added = service.addUser(args[1], args[2], args[3]);
+            System.out.println("Utilizator adaugat, id generat: " + added.getId());
         }));
         commands.put("removeUser", withArgs(1, args -> System.out.println("Sters: " + service.removeUser(args[1]))));
         commands.put("addFriend", withArgs(2, args -> {
@@ -63,13 +72,11 @@ public class Console {
      */
     public void run() {
         printHelp();
-        // bucla de citire de la tastatura (nu parcurge o colectie), vezi readme.txt
+        // bucla de citire de la tastatura (nu parcurge o colectie)
         while (true) {
             System.out.print("> ");
             if (!scanner.hasNextLine()) return;
-            String[] args = Arrays.stream(scanner.nextLine().trim().split("\\s+"))
-                    .filter(Predicate.not(String::isBlank))
-                    .toArray(String[]::new);
+            String[] args = parse(scanner.nextLine());
             if (args.length == 0) continue;
             if (args[0].equals("exit")) return;
             execute(args);
@@ -83,13 +90,34 @@ public class Console {
                             () -> System.out.println("Comanda necunoscuta. Scrie 'help'."));
         } catch (ValidationException e) {
             System.out.println("Date invalide: " + e.getMessage());
-        } catch (ServiceException | RepositoryException e) {
+        } catch (ServiceException e) {
             System.out.println("Eroare: " + e.getMessage());
-        } catch (NumberFormatException e) {
-            System.out.println("Eroare: id-ul trebuie sa fie numar.");
-        } catch (UnsupportedOperationException e) {
-            System.out.println("Operatie indisponibila: " + e.getMessage());
+        } catch (RepositoryException e) {
+            // baza de date oprita, constrangere incalcata, fisier care nu se poate scrie:
+            // mesajul e deja specific (vezi SqlErrors), fara stack trace
+            System.out.println("Eroare la stocarea datelor: " + e.getMessage());
         }
+    }
+
+    /**
+     * Splits a command line into arguments: words separated by spaces, or text between
+     * double quotes (kept as one argument, without the quotes).
+     *
+     * @param line the line read from the keyboard
+     * @return the arguments, the first one is the command name (empty for a blank line)
+     */
+    private static String[] parse(String line) {
+        return ARGUMENT.matcher(line).results()
+                .map(Console::argumentOf)
+                .toArray(String[]::new);
+    }
+
+    /**
+     * @param match a match of {@link #ARGUMENT}
+     * @return the text between the quotes, or the word without spaces
+     */
+    private static String argumentOf(MatchResult match) {
+        return match.group(1) != null ? match.group(1) : match.group(2);
     }
 
     /**
@@ -115,11 +143,12 @@ public class Console {
     private void printHelp() {
         System.out.println("""
                 Comenzi:
-                  addUser <id> <username> <prenume> <nume>
+                  addUser <username> <prenume> <nume>    (id-ul il genereaza stocarea)
                   removeUser <username>
                   addFriend <username1> <username2>
                   removeFriend <username1> <username2>
                   users | friends | communities | sociable | help | exit
-                  friendsOf <username> | search <text> | lonely | top""");
+                  friendsOf <username> | search <text> | lonely | top
+                Un argument cu spatii se scrie intre ghilimele, ex. addUser ana2 "Ana Maria" Pop""");
     }
 }
